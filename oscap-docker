@@ -76,37 +76,29 @@ function query_cpe_in_chroot(){
 function cve_definitions_uri(){
 	local name=$1; shift
 	local image_root=$1; shift
-	if [ -f $image_root/etc/issue ]
+	if [ -f $image_root/etc/os-release ]
+	then
+		source $image_root/etc/os-release
+	elif [ -f $image_root/etc/issue ]
 	then
 		etc_issue_path=$image_root/etc/issue
 		local os=$(cat $etc_issue_path | head -n +1 | awk '{print $1}')
 		case $os in
 		  Debian)
-		  	OS_ID=debian
-		  	version=$(cat $etc_issue_path | head -n +1 | awk '{print $3}' | cut -d '.' -f 1)
-			case $version in
-				4)
-					OS_VERSION_ID=4.0
-				;;
-				5)
-					OS_VERSION_ID=5.0
-				;;
-				*)
-					OS_VERSION_ID=$version
-				;;
-			esac
+		  	ID=debian
+		  	VERSION_ID=$(cat $etc_issue_path | head -n +1 | awk '{print $3}' | cut -d '.' -f 1)
 		  ;;
 		  CentOS)
-		  	OS_ID=centos
+		  	ID=centos
 		    local version=$(cat $etc_issue_path | head -n +1 | awk '{print $3}')
-		    OS_VERSION_ID=linux.${version%%.*}
+		    VERSION_ID=${version%%.*}
 		  ;;
 		  Ubuntu)
-		  	OS_ID=ubuntu
+		  	ID=ubuntu
 		    local version=$(cat $etc_issue_path | head -n +1 | awk '{print $2}')
 		    local major_version=$(echo $version | cut -d '.' -f 1)
 		    local minor_version=$(echo $version | cut -d '.' -f 2)
-		    OS_VERSION_ID="${major_version}.${minor_version}"
+		    VERSION_ID="${major_version}.${minor_version}"
 		  ;;
 		  *)
 		  	echo "could not find mite file because ${os} is not recognized"
@@ -117,7 +109,28 @@ function cve_definitions_uri(){
 		echo "cannot find mitre file because no $image_root/etc/issue"
 		exit 1
 	fi
-	echo "http://oval.mitre.org/rep-data/$MITRE_VERSION/org.mitre.oval/p/platform/$OS_ID.$OS_VERSION_ID.xml"
+	case $ID in
+		ubuntu)
+		 	case $VERSION_ID in
+				4)
+					MITRE_OS_VERSION=4.0
+				;;
+				5)
+					MITRE_OS_VERSION=5.0
+				;;
+				*)
+					MITRE_OS_VERSION=$VERSION_ID
+				;;
+			esac
+		;;
+		centos)
+			MITRE_OS_VERSION=linux.$VERSION_ID
+		;;
+		*)
+			MITRE_OS_VERSION=$VERSION_ID
+		;;
+	esac
+	echo "http://oval.mitre.org/rep-data/${MITRE_RELEASE_VERSION}/org.mitre.oval/p/platform/$ID.${MITRE_OS_VERSION}.xml"
 }
 
 module=$1; shift

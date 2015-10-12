@@ -24,7 +24,7 @@ RUN mkdir -p /src/undocker \
 COPY oscap-docker /usr/local/bin/oscap-docker
 RUN chmod a+x /usr/local/bin/oscap-docker
 
-ENV MITRE_VERSION=5.10
+ENV MITRE_RELEASE_VERSION=5.10
 
 WORKDIR /data
 VOLUME ["/data"]
