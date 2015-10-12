@@ -31,17 +31,7 @@ function usage(){
 function docker_mount_image(){
 	local image_name=$1
 	local target_dir=$2
-	local tmp=`mktemp -d docker.XXXXXX`
-	# -- 'docker mount' will be hopefully comming later to docker
-	docker save $image_name | tar x --directory $tmp
-	# layers now in the working directory
-	for layer in `find $tmp/* -maxdepth 1 -type d`; do
-		if tar tvf $layer/layer.tar | grep . > /dev/null; then
-			# TODO: layer ordering: can multiple layers contain data?
-			tar xf $layer/layer.tar --directory $target_dir
-		fi
-	done
-	rm -r $tmp
+	docker save $image_name | /usr/local/bin/undocker.py -o $target_dir $image_name
 }
 
 function docker_umount_image(){
@@ -62,18 +52,18 @@ function docker_container_root(){
 }
 
 function oscap_chroot(){
-	local target=$1; shift
-	local image=$1; shift
-	local path=$1; shift
-	local oscap_arguments="$*"
+  local target=$1; shift
+  local image=$1; shift
+  local path=$1; shift
+  local oscap_arguments="$*"
 
-	# Learn more at https://www.redhat.com/archives/open-scap-list/2013-July/msg00000.html
-	export OSCAP_PROBE_ROOT="$(cd $path; pwd)"
-	export OSCAP_PROBE_OS_NAME="Linux"
-	export OSCAP_PROBE_OS_VERSION=`uname --kernel-release`
-	export OSCAP_PROBE_ARCHITECTURE=`uname --hardware-platform`
-	export OSCAP_PROBE_PRIMARY_HOST_NAME="docker-$target-$image"
-	oscap $oscap_arguments
+  # Learn more at https://www.redhat.com/archives/open-scap-list/2013-July/msg00000.html
+  export OSCAP_PROBE_ROOT="$(cd $path; pwd)"
+  export OSCAP_PROBE_OS_NAME="Linux"
+  export OSCAP_PROBE_OS_VERSION=`uname --kernel-release`
+  export OSCAP_PROBE_ARCHITECTURE=`uname --hardware-platform`
+  export OSCAP_PROBE_PRIMARY_HOST_NAME="docker-$target-$image"
+  oscap $oscap_arguments
 }
 
 function query_cpe_in_chroot(){
@@ -86,14 +76,48 @@ function query_cpe_in_chroot(){
 function cve_definitions_uri(){
 	local name=$1; shift
 	local image_root=$1; shift
-	if query_cpe_in_chroot $image_root oval:org.open-scap.cpe.rhel:def:7 || \
-			query_cpe_in_chroot $image_root oval:org.open-scap.cpe.rhel:def:6 ||\
-			query_cpe_in_chroot $image_root oval:org.open-scap.cpe.rhel:def:5; then
-		echo "http://www.redhat.com/security/data/oval/com.redhat.rhsa-all.xml"
+	if [ -f $image_root/etc/issue ]
+	then
+		etc_issue_path=$image_root/etc/issue
+		local os=$(cat $etc_issue_path | head -n +1 | awk '{print $1}')
+		case $os in
+		  Debian)
+		  	OS_ID=debian
+		  	version=$(cat $etc_issue_path | head -n +1 | awk '{print $3}' | cut -d '.' -f 1)
+			case $version in
+				4)
+					OS_VERSION_ID=4.0
+				;;
+				5)
+					OS_VERSION_ID=5.0
+				;;
+				*)
+					OS_VERSION_ID=$version
+				;;
+			esac
+		  ;;
+		  CentOS)
+		  	OS_ID=centos
+		    local version=$(cat $etc_issue_path | head -n +1 | awk '{print $3}')
+		    OS_VERSION_ID=linux.${version%%.*}
+		  ;;
+		  Ubuntu)
+		  	OS_ID=ubuntu
+		    local version=$(cat $etc_issue_path | head -n +1 | awk '{print $2}')
+		    local major_version=$(echo $version | cut -d '.' -f 1)
+		    local minor_version=$(echo $version | cut -d '.' -f 2)
+		    OS_VERSION_ID="${major_version}.${minor_version}"
+		  ;;
+		  *)
+		  	echo "could not find mite file because ${os} is not recognized"
+		  	exit 1
+		  ;;
+		esac
 	else
-		echo "Could not found CVE definitions for: $name" >&2
-		return 1
+		echo "cannot find mitre file because no $image_root/etc/issue"
+		exit 1
 	fi
+	echo "http://oval.mitre.org/rep-data/$MITRE_VERSION/org.mitre.oval/p/platform/$OS_ID.$OS_VERSION_ID.xml"
 }
 
 module=$1; shift
@@ -113,6 +137,7 @@ image-cve)
 	cve_oval=$image_root/cve-oval.xml
 	docker_mount_image $image_name $image_root
 	cve_definitions_uri=`cve_definitions_uri $image_name $image_root`
+	echo "using ${cve_definitions_uri} for cve defitions"
 	wget --no-verbose -O "$cve_oval" $cve_definitions_uri
 	oscap_chroot "image" $image_name $image_root oval eval $oscap_oval_eval_arguments $cve_oval
 	docker_umount_image $image_root

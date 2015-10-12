@@ -1,17 +1,30 @@
 FROM centos:centos7
 MAINTAINER Damien DUPORTAL <damien.duportal@gmail.com>
 
-# Since the project is not versionned on Github
-ENV DOCKER_OSCAP_VERSION master
+ENV MITRE_VERSION=5.10
+
 RUN yum install -y \
 		openssl \
 		openscap \
 		openscap-utils \
 		openscap-engine-sce \
 		wget \
-	&& wget --quiet -O /usr/local/bin/oscap-docker \
-		"https://raw.githubusercontent.com/OpenSCAP/container-compliance/${DOCKER_OSCAP_VERSION}/oscap-docker" \
-	&& chmod a+x /usr/local/bin/oscap-docker
+		curl \
+		unzip \
+		python
+
+RUN mkdir -p /src/undocker \
+	&& wget -O /src/undocker/undocker-4.zip "https://github.com/larsks/undocker/archive/undocker-4.zip" \
+	&& cd /src/undocker \
+	&& unzip /src/undocker/undocker-4.zip \
+	&& mv /src/undocker/undocker-undocker-4/undocker.py /usr/local/bin/undocker.py \
+	&& chmod a+x /usr/local/bin/undocker.py \
+	&& rm -rf /src/undocker
+
+COPY oscap-docker /usr/local/bin/oscap-docker
+RUN chmod a+x /usr/local/bin/oscap-docker
+
+ENV MITRE_VERSION=5.10
 
 WORKDIR /data
 VOLUME ["/data"]
